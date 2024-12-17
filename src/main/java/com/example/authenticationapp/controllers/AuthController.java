@@ -2,12 +2,16 @@ package com.example.authenticationapp.controllers;
 
 import com.example.authenticationapp.Repositories.UserRepo;
 import com.example.authenticationapp.models.User;
+import com.example.authenticationapp.pojo.ForgotPasswordBody;
+import com.example.authenticationapp.pojo.UpdatePasswordBody;
 import com.example.authenticationapp.pojo.UserLoginDetails;
 import com.example.authenticationapp.pojo.UserSignupDetails;
+import com.example.authenticationapp.services.EmailService;
 import com.example.authenticationapp.services.JwtService;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.Collections;
+import java.util.Date;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,6 +28,9 @@ public class AuthController {
 
   @Autowired
   UserRepo userRepository;
+
+  @Autowired
+  EmailService emailService;
 
   @Autowired
   JwtService jwtService;
@@ -72,49 +79,109 @@ public class AuthController {
     return Collections.singletonMap("token", token);
   }
 
+  // is token present?
+  // is token expired?
+  // extract userId from token
+  // check if user exists
   @RequestMapping(value = "/refreshToken", method = RequestMethod.GET)
-  public String refreshToken(
+  public Map<String, String> refreshToken(
     @RequestHeader("Authorization") String token,
     HttpServletResponse response
-  ) throws java.io.IOException {
+  ) throws IOException {
     if (token == null || token.isEmpty() || !token.startsWith("Bearer ")) {
-      response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Invalid Token");
+      response.sendError(401);
+    }
+    // HW: Check if this token was generated before password was update
+    String userId = jwtService.validateToken(token.substring(7)); // If token is not expired, we will get userId embedded inside the token
+    if (userId == null) {
+      response.sendError(401);
     }
 
-    String userEmail = jwtService.validateToken(token);
-    //validate if user is in the db
+    // Check in db if user exists or not
+    User user = userRepository.findById(userId).get();
+    if (user == null) {
+      response.sendError(401);
+    }
 
-    // generate new token and return
-
-    return userEmail;
+    final String newToken = jwtService.generateToken(userId);
+    return Collections.singletonMap("token", newToken);
   }
 
-  @RequestMapping(
-    value = "/forgotPassword/{userEmail}",
-    method = RequestMethod.POST
-  )
+  // 1. Forgot password api
+  // 	-> email
+  // --------------------------------------
+  // -> FindUserByEmailId
+  // -> passwordResetToken
+  // --> hash-> store in db
+  // --> passwordResetExpires-> 10
+  // -> send passwordResetToken,userId to mail
+  // = Check link in your email
+  @RequestMapping(value = "/forgotPassword", method = RequestMethod.POST)
   public String forgotPassword(
-    @RequestParam("userEmail") String email,
+    @RequestBody ForgotPasswordBody body,
     HttpServletResponse response
   ) throws IOException {
+    String email = body.getEmail();
     if (email == null || email.isEmpty() || !email.contains("@")) {
-      response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Invalid Email");
+      response.sendError(400);
     }
-    // generate passworreset token
-    UUID uuid = new UUID.randomUUID();
-    String passwordResetToken = uuid.toString();
+
     User user = userRepository.findByEmail(email);
-    // user.setPasswordResetToken(passwordResetToken);
-    // user.setPasswordResetExpiresAt(System.currentTimeMillis() + 10 * 60 * 1000);
-    return "Check your email for password reset token";
+    if (user == null) {
+      return "Check your email!";
+    }
+
+    UUID uuid = UUID.randomUUID();
+    String passwordResetToken = uuid.toString();
+
+    // TODO Send password reset token to user in their email.
+    emailService.sendEmail(
+      email,
+      "Your Password reset Token!",
+      passwordResetToken
+    );
+
+    String hashedToken = jwtService.hashString(passwordResetToken);
+    user.setPasswordResetToken(hashedToken);
+    user.setPasswordResetExpires(
+      new Date(System.currentTimeMillis() + 1000 * 60 * 2)
+    );
+    userRepository.save(user);
+
+    return "Check your email! ";
   }
-  /*@Test
-Step 1: Verify the token
-  // Step 1.1: Is passwordResetExpiresAt done?
-  // Step 1.2: Hash token provided by user and then compare with the one in DB
-  // Step 2: Update the password
-  // Step 3: Reset the passwordResetToken in Db. Why? SO that passwordResetToken is only used 1 time by user
-  // Step 4: Generate a JWT token for the client and respond
-    
-} */
+
+  @RequestMapping(value = "/updatePassword", method = RequestMethod.PATCH)
+  public String updatePassword(
+    @RequestBody UpdatePasswordBody body,
+    HttpServletResponse response
+  ) throws IOException {
+    String resestToken = body.getResetToken();
+    String newPassword = body.getNewPassword();
+    String email = body.getEmail();
+    if (resestToken == null || newPassword == null || email == null) {
+      response.sendError(400);
+    }
+    User user = userRepository.findByEmail(email);
+    if (user == null) {
+      response.sendError(400);
+    }
+    String hashPasswordResetTokenInDB = user.getPasswordResetToken();
+    Date passwordResetExpiryTimeInDB = user.getPasswordResetExpires();
+    Date currentTime = new Date();
+    // Is time expired?
+    if (currentTime.after(passwordResetExpiryTimeInDB)) {
+      response.sendError(400);
+    }
+    // Is reset Token valid?
+    if (
+      !jwtService.hashString(resestToken).equals(hashPasswordResetTokenInDB)
+    ) {
+      response.sendError(400);
+    }
+    user.setPassword(jwtService.hashString(newPassword));
+    user.setPasswordUpdatedAt(currentTime);
+    userRepository.save(user);
+    return "Password Updated Successfully!";
+  }
 }

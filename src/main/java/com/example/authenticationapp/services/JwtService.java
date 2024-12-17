@@ -1,5 +1,10 @@
 package com.example.authenticationapp.services;
 
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.SignatureAlgorithm;
+import io.jsonwebtoken.io.Decoders;
+import io.jsonwebtoken.security.Keys;
 import java.security.Key;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -7,14 +12,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Function;
-
 import org.springframework.stereotype.Component;
-
-import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.SignatureAlgorithm;
-import io.jsonwebtoken.io.Decoders;
-import io.jsonwebtoken.security.Keys;
 
 @Component
 public class JwtService {
@@ -36,7 +34,9 @@ public class JwtService {
       .setClaims(claims)
       .setSubject(userName)
       .setIssuedAt(new Date())
-      .setExpiration(new Date(System.currentTimeMillis() + 1000 * 60 * 30)) // Token valid for 30 minutes
+      .setExpiration(
+        new Date(System.currentTimeMillis() + 1000 * 60 * 30)
+      ) // Token valid for 30 minutes
       .signWith(getSignKey(), SignatureAlgorithm.HS256)
       .compact();
   }
@@ -81,7 +81,7 @@ public class JwtService {
   // Validate the token against user details and expiration
   public String validateToken(String token) {
     final String username = extractUsername(token);
-    if (!isTokenExpired(token)) {
+    if (isTokenExpired(token)) {
       return null;
     }
     return username;

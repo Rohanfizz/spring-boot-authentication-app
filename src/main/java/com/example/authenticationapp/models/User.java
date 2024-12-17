@@ -29,6 +29,8 @@ public class User {
   private Date updatedAt;
   private Date passwordUpdatedAt;
   private boolean isActive;
+  private String passwordResetToken;
+  private Date passwordResetExpires;
 
   @PrePersist
   public void preHandle() {
@@ -39,6 +41,22 @@ public class User {
     this.id = uuid.toString();
 
     this.isActive = true;
+  }
+
+  public String getPasswordResetToken() {
+    return this.passwordResetToken;
+  }
+
+  public void setPasswordResetToken(String passwordResetToken) {
+    this.passwordResetToken = passwordResetToken;
+  }
+
+  public Date getPasswordResetExpires() {
+    return this.passwordResetExpires;
+  }
+
+  public void setPasswordResetExpires(Date passwordResetExpires) {
+    this.passwordResetExpires = passwordResetExpires;
   }
 
   public boolean isIsActive() {
